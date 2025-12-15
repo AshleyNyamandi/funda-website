@@ -12,10 +12,13 @@ function App() {
     <Routes>
       <Route element={<NavBar />}>
         <Route index element={<Home />}/>
-        <Route path="edit" element={<Edit />}/>
-        <Route  path="subject/:subject" element={<LevelsPage />}/>
-        <Route path="edit/preview" element={<EditPreview />} />
       </Route>  
+        <Route path="/edit">
+          <Route index element={<Edit />} />
+          <Route path="preview" element={<EditPreview />} />
+        </Route>
+        <Route  path="subject/:subject" element={<LevelsPage />}/>
+
     </Routes>
     </div>
   )

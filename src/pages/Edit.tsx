@@ -4,11 +4,11 @@ import TeachingMaterialsEditor from '../components/Editor'
 
 
 const Edit: React.FC = () => {
-    const [user, setUser] = useState<string>("editor")
+    const [user, setUser] = useState<string>("loggedIn")
   return (
 
       <main className='min-h-screen flex items-center justify-center'>
-          {user === "editor" ? <TeachingMaterialsEditor />: <Login />}
+          {user === "loggedIn" ? <Login /> :  <TeachingMaterialsEditor />}
       </main>
 
 
