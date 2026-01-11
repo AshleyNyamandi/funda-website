@@ -1,82 +1,128 @@
 import React from 'react';
 import { useEditorContent } from '../hooks/useEditorContent';
-import * as katex from 'katex';
+import type { Descendant } from 'slate';
+import { useState } from 'react';
+import supabase from '../utils/supabase';
+import renderNode, { type RichElement } from '../utils/previewRenderer'
 
-const applyLeafMarks = (text: string, leaf: any) => {
-  let node: React.ReactNode = text;
-
-  if (leaf.code) node = <code className="bg-gray-100 px-1 rounded font-mono text-sm">{node}</code>;
-  if (leaf.superscript) node = <sup className="align-super text-[0.8em]">{node}</sup>;
-  else if (leaf.subscript) node = <sub className="align-sub text-[0.8em]">{node}</sub>;
-  if (leaf.bold) node = <strong>{node}</strong>;
-  if (leaf.italic) node = <em>{node}</em>;
-  if (leaf.underline) node = <u>{node}</u>;
-  if (leaf.highlight) node = (
-    <span style={{ backgroundColor: leaf.highlight, padding: '0 .15em', borderRadius: 3 }}>{node}</span>
-  );
-
-  return node;
-};
-
-const renderChildren = (children: any[]) => (
-  children.map((leaf: any, idx: number) => {
-    if (leaf.text !== undefined) {
-      return <React.Fragment key={idx}>{applyLeafMarks(leaf.text, leaf)}</React.Fragment>;
-    }
-    // If nested element inside children
-    return <React.Fragment key={idx}>{renderNode(leaf)}</React.Fragment>;
-  })
-);
-
-const renderNode = (node: any, idx?: number): React.ReactNode => {
-  const alignClass = node && node.align === 'center' ? 'text-center' : node && node.align === 'right' ? 'text-right' : 'text-left';
-
-  switch (node.type) {
-    case 'heading-one':
-      return <h1 key={idx} className={`text-2xl font-bold text-black mt-6 mb-4 ${alignClass}`}>{renderChildren(node.children)}</h1>;
-    case 'heading-two':
-      return <h2 key={idx} className={`text-xl font-semibold text-black mt-5 mb-3 ${alignClass}`}>{renderChildren(node.children)}</h2>;
-    case 'bulleted-list':
-      return <ul key={idx} className="list-disc pl-6 my-4 text-black">{(node.children || []).map((li: any, i: number) => <li key={i}>{renderChildren(li.children)}</li>)}</ul>;
-    case 'numbered-list':
-      return <ol key={idx} className="list-decimal pl-6 my-4 text-black">{(node.children || []).map((li: any, i: number) => <li key={i}>{renderChildren(li.children)}</li>)}</ol>;
-    case 'quote':
-      return <blockquote key={idx} className={`border-l-4 border-gray-300 pl-4 my-4 italic text-gray-600  ${alignClass}`}>{renderChildren(node.children)}</blockquote>;
-    case 'code':
-      return <pre key={idx} className={`bg-gray-100 p-4 rounded my-4 font-mono text-sm overflow-x-auto text-black ${alignClass}`}><code>{node.children && node.children.map((c: any) => c.text).join('')}</code></pre>;
-    case 'image':
-      return (
-        <div key={idx} className="my-6">
-          <img src={node.url} alt="" className="max-w-full h-auto rounded-lg shadow-md" />
-        </div>
-      );
-    case 'math':
-      return (
-        <div key={idx} className={`my-4 p-2 border border-blue-200 rounded bg-blue-50 ${node.display === 'block' ? 'text-center py-4' : 'inline'}`}>
-          <div dangerouslySetInnerHTML={{ __html: katex.renderToString(node.latex, { throwOnError: false, displayMode: node.display === 'block' }) }} />
-        </div>
-      );
-    case 'divider':
-      return <div key={idx} className="my-8"><hr className="border-t-2 border-gray-300" /></div>;
-    default:
-      return <p key={idx} className={`my-3 leading-relaxed text-black ${alignClass}`}>{renderChildren(node.children || [])}</p>;
-  }
-};
+// rendering helpers moved to src/utils/previewRenderer.tsx
 
 const EditPreview: React.FC = () => {
   const { content } = useEditorContent();
 
-  const handleNotesSubmit = () => {
+  // Form state
+  const [topic, setTopic] = useState<string>('')
+  const [topicNumber, setTopicNumber] = useState<number | ''>('')
+  const [grade, setGrade] = useState<string>('')
+  const [noteType, setNoteType] = useState<string>('Notes')
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [subject, setSubject] = useState<string>('Mathematics')
 
+  const uploadImage = async (input: any): Promise<string> => {
+    // input can be a File, a data URL string, or already a remote URL string
+    if (!input) return ''
+
+    // If already a remote URL, return as-is
+    if (typeof input === 'string' && (input.startsWith('http://') || input.startsWith('https://'))) {
+      return input
+    }
+
+    // Create a File object if input is a data URL
+    let file: File | null = null
+    if (typeof input === 'string' && input.startsWith('data:')) {
+      const res = await fetch(input)
+      const blob = await res.blob()
+      const ext = blob.type.split('/')?.[1] ?? 'png'
+      file = new File([blob], `${Date.now()}.${ext}`, { type: blob.type })
+    } else if (input instanceof File) {
+      file = input
+    } else if (typeof input === 'object' && 'name' in input && 'size' in input) {
+      // might already be a File-like object
+      file = input as File
+    }
+
+    if (!file) {
+      // fallback: return empty string
+      return ''
+    }
+
+    const path = `notes/${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${file.name}`
+    const { error: uploadError } = await supabase.storage.from('notes_bucket').upload(path, file, { upsert: true })
+    if (uploadError) {
+      throw uploadError
+    }
+    const { data } = supabase.storage.from('notes_bucket').getPublicUrl(path)
+    return data.publicUrl
+  }
+
+  const handleNotesSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    setErrorMsg(null)
+    setLoading(true)
+    try {
+      // Find image nodes and upload images, replacing urls with public urls
+      const contentCopy: Descendant[] = JSON.parse(JSON.stringify(content || []))
+      const uploadedImages: string[] = []
+
+      const walkAndUpload = async (nodes: Descendant[]) => {
+        for (const node of nodes) {
+          const elem = node as RichElement
+          if ((elem.type ?? '') === 'image') {
+            const url = (elem as any).url
+            if (url) {
+              const publicUrl = await uploadImage(url)
+              if (publicUrl) {
+                (elem as any).url = publicUrl
+                uploadedImages.push(publicUrl)
+              }
+            }
+          }
+          // Recurse into children if present
+          if ((elem.children ?? []).length > 0) {
+            await walkAndUpload(elem.children as Descendant[])
+          }
+        }
+      }
+
+      await walkAndUpload(contentCopy)
+
+      // Insert record into `notes` table (assumption: table is named 'notes')
+      const insertPayload = {
+        topic,
+        topic_number: typeof topicNumber === 'number' ? topicNumber : null,
+        subject,
+        grade,
+        type: noteType,
+        content: contentCopy, // store as JSON/JSONB in Supabase
+        images: uploadedImages,
+      }
+
+      const { data: insertData, error: insertError } = await supabase.from('notes').insert(insertPayload).select()
+      if (insertError) throw insertError
+      console.log('Inserted note', insertData)
+      // optionally reset form
+      setTopic('')
+      setTopicNumber('')
+      setSubject('Mathematics')
+      setGrade('')
+      setNoteType('Notes')
+
+    } catch (err: any) {
+      console.error('Publish failed', err)
+      setErrorMsg(err?.message ?? String(err))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div className="min-h-screen">
       <div className='max-w-2xl mx-auto bg-white rounded shadow-sm p-6 mt-4'>
             {content && content.length > 0 ? (
-          content.map((node: any, i: number) => (
-            <React.Fragment key={i}>{renderNode(node, i)}</React.Fragment>
-          ))
+              content.map((node: Descendant, i: number) => (
+                <React.Fragment key={i}>{renderNode(node, i)}</React.Fragment>
+              ))
         ) : (
           <div className="text-sm text-gray-500">No content to preview.</div>
         )}
@@ -90,13 +136,15 @@ const EditPreview: React.FC = () => {
                 <label htmlFor="topic" className='text-sm'>
                     Topic
                 </label>
-                <input 
+        <input 
                     id='topic' 
                     type="text" 
-                    className='border-2 border-gray-400/50 rounded-sm placeholder:text-gray-400 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm text-black/90 w-full'
+          className='border-2 border-gray-400/50 rounded-sm placeholder:text-gray-400 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm text-black/90 w-full'
                     placeholder='E.g., Thermodymanics'
-                    aria-required="true"
-                    required
+          aria-required="true"
+          required
+          value={topic}
+          onChange={e => setTopic(e.target.value)}
                 />
                 <label htmlFor="topic-number" className='text-sm'>
                     Topic Number according to the syllabus
@@ -107,25 +155,33 @@ const EditPreview: React.FC = () => {
                     className='border-2 border-gray-400/50 rounded-sm placeholder:text-gray-400 p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm text-black/90 w-full'
                     aria-required="true"
                     required
+                    value={topicNumber}
+                    onChange={e => setTopicNumber(e.target.value === '' ? '' : Number(e.target.value))}
                 />
-                  <input type="number" />
-                  <select required name="" id="" className='p-2 outline-green-500'>
-                    <option value="">Form 1</option>
-                    <option value="">Form 2</option>
-                    <option value="">Form 3</option>
-                    <option value="">Form 4</option>
-                    <option value="">Form 5</option>
-                    <option value="">Form 6</option>
+                  <select required name="subject" id="subject" className='p-2 outline-green-500' value={subject} onChange={e => setSubject(e.target.value)}>
+                    <option value="Mathematics">Mathematics</option>
+                    <option value="Physics">Physics</option>
+                    <option value="Integrated Science">Integrated Science</option>
                   </select>
-                  <select name="" id="" className='p-2 outline-green-500'>
-                    <option value="">Notes</option>
-                    <option value="">Excerices</option>
+                  <select required name="grade" id="grade" className='p-2 outline-green-500' value={grade} onChange={e => setGrade(e.target.value)}>
+                    <option value="" disabled selected>Select Form</option>
+                    <option value="Form 1">Form 1</option>
+                    <option value="Form 2">Form 2</option>
+                    <option value="Form 3">Form 3</option>
+                    <option value="Form 4">Form 4</option>
+                    <option value="Form 5">Form 5</option>
+                    <option value="Form 6">Form 6</option>
+                  </select>
+                  <select name="noteType" id="noteType" className='p-2 outline-green-500' value={noteType} onChange={e => setNoteType(e.target.value)}>
+                    <option value="Notes">Notes</option>
+                    <option value="Exercises">Exercises</option>
                   </select>
                   <button
-                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
                       type='submit'
-
-                  >Publish</button>
+                      disabled={loading}
+                  >{loading ? 'Publishing...' : 'Publish'}</button>
+                  {errorMsg ? <div className='text-sm text-red-600 mt-2'>We had a problem uploading the content </div> : null}
                 </form>
               </div>
             ): ""

@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { BrowserRouter } from 'react-router'
 import EditorProvider from './context/EditorContext.tsx'
+import UserContextProvider from './context/UserContext.tsx'
 
 const queryClient = new QueryClient()
 
@@ -12,9 +13,11 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-      <EditorProvider>
-        <App />
-      </EditorProvider>
+      <UserContextProvider>
+        <EditorProvider>
+          <App />
+        </EditorProvider>
+      </UserContextProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

@@ -4,6 +4,7 @@ import NavBar from "./components/NavBar"
 import LevelsPage from "./pages/LevelsPage"
 import Edit from "./pages/Edit"
 import EditPreview from "./pages/EditPreview"
+import Login from "./components/Login"
 
 function App() {
 
@@ -12,12 +13,13 @@ function App() {
     <Routes>
       <Route element={<NavBar />}>
         <Route index element={<Home />}/>
-      </Route>  
+        <Route path='/login'  element={<Login />}/>
         <Route path="/edit">
           <Route index element={<Edit />} />
           <Route path="preview" element={<EditPreview />} />
         </Route>
         <Route  path="subject/:subject" element={<LevelsPage />}/>
+      </Route>  
 
     </Routes>
     </div>

@@ -1,12 +1,12 @@
 import { useContext } from "react";
-import { UserContext } from "../context/userContext";
+import { UserContext } from "../context/UserContext";
 
-const useUserContext = () {
-    const ctx = useContext(UserContext)
-    if (!ctx) {
+const useUserContext = () =>{
+    const context = useContext(UserContext)
+    if (!context) {
         throw new Error("user is undefined")
     }
-    return ctx
+    return context
 }
 
 export default useUserContext;

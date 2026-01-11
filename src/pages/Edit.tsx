@@ -1,14 +1,16 @@
-import React, { useState } from 'react'
-import Login from '../components/Login'
+import React from 'react'
 import TeachingMaterialsEditor from '../components/Editor'
+import useUserContext from '../hooks/useUserContext'
+import { Navigate } from 'react-router'
 
 
 const Edit: React.FC = () => {
-    const [user, setUser] = useState<string>("loggedIn")
+    const { user } = useUserContext()
   return (
 
-      <main className='min-h-screen flex items-center justify-center'>
-          {user === "loggedIn" ? <Login /> :  <TeachingMaterialsEditor />}
+
+      <main>
+          {user ?  <TeachingMaterialsEditor /> :  <Navigate to='/login' />}
       </main>
 
 
